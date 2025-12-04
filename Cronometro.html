@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Cronómetro</title>
+<style>
+    body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        font-family: Arial, sans-serif;
+        background: #111;
+        color: #0f0;
+    }
+    #display {
+        font-size: 80px;
+        letter-spacing: 2px;
+        margin-bottom: 20px;
+    }
+    button { display:none; } /* ocultamos botones locales: control desde otra pestaña */
+    #status { margin-top: 10px; font-size: 14px; color: #8f8; }
+</style>
+</head>
+<body>
+
+<div id="display">00:00:00</div>
+<div id="status">Estado: detenido</div>
+
+<script>
+/* Cronómetro con comunicación entre pestañas */
+let startTime = 0;
+let elapsed = 0;
+let interval = null;
+let running = false;
+
+/* CHANNEL: BroadcastChannel name */
+const CHANNEL = 'cronometro-channel';
+let bc = null;
+try {
+    bc = new BroadcastChannel(CHANNEL);
+} catch (e) {
+    bc = null;
+}
+
+/* Helpers */
+function formatTime(ms){
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${String(hours).padStart(2,"0")}:` +
+           `${String(minutes).padStart(2,"0")}:` +
+           `${String(seconds).padStart(2,"0")}`;
+}
+function updateDisplay(){
+    const total = (running ? elapsed + (Date.now() - startTime) : elapsed);
+    document.getElementById("display").textContent = formatTime(total);
+}
+/* Emitir estado por BroadcastChannel o localStorage (fallback) */
+function emitState(){
+    const total = (running ? elapsed + (Date.now() - startTime) : elapsed);
+    const state = {
+        type: 'state',
+        running,
+        elapsed: total,
+        timestamp: Date.now()
+    };
+    if (bc) bc.postMessage(state);
+    else localStorage.setItem('cronometro_msg', JSON.stringify(state));
+}
+
+/* Start / Pause / Reset actions (internas) */
+function startTimer(){
+    if (running) return;
+    startTime = Date.now();
+    running = true;
+    interval = setInterval(() => { updateDisplay(); emitState(); }, 200);
+    updateStatus();
+    emitState();
+}
+function pauseTimer(){
+    if (!running) return;
+    clearInterval(interval);
+    elapsed += Date.now() - startTime;
+    running = false;
+    updateDisplay();
+    updateStatus();
+    emitState();
+}
+function resetTimer(){
+    clearInterval(interval);
+    startTime = 0;
+    elapsed = 0;
+    running = false;
+    updateDisplay();
+    updateStatus();
+    emitState();
+}
+function updateStatus(){
+    document.getElementById("status").textContent = running ? 'Estado: corriendo' : 'Estado: detenido';
+}
+
+/* Escuchar mensajes de control */
+function handleMessage(msg){
+    if (!msg) return;
+    const data = (msg.data !== undefined) ? msg.data : msg; // bc: msg.data, localStorage: parsed
+    if (!data || !data.type) return;
+    if (data.type === 'command'){ 
+        if (data.command === 'start') startTimer();
+        if (data.command === 'pause') pauseTimer();
+        if (data.command === 'reset') resetTimer();
+        if (data.command === 'set' && typeof data.elapsed === 'number'){
+            // opcional: establecer tiempo concreto (ms)
+            clearInterval(interval);
+            elapsed = data.elapsed;
+            startTime = data.startTime || 0;
+            running = !!data.running;
+            if (running) {
+                startTime = Date.now() - (data.elapsed - (data.startFrom || 0));
+                interval = setInterval(() => { updateDisplay(); emitState(); }, 200);
+            }
+            updateDisplay();
+            updateStatus();
+            emitState();
+        }
+    }
+}
+
+/* Configurar BroadcastChannel y fallback storage event */
+if (bc) {
+    bc.onmessage = handleMessage;
+} else {
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'cronometro_msg' && e.newValue) {
+            try {
+                const parsed = JSON.parse(e.newValue);
+                handleMessage(parsed);
+            } catch (err) {}
+        }
+    });
+}
+
+/* Cuando se carga, anunciar estado actual para que el controlador lo pida */
+window.addEventListener('load', () => {
+    // enviar un estado inicial
+    emitState();
+});
+
+/* Actualizar display cada segundo si no está corriendo (garantía) */
+setInterval(updateDisplay, 1000);
+</script>
+
+</body>
+</html>
