@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cronómetro</title>
+<style>
+    body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        font-family: Arial, sans-serif;
+        background: #111;
+        color: #0f0;
+        margin: 0;
+    }
+    #display {
+        font-size: 80px;
+        letter-spacing: 2px;
+        margin-bottom: 20px;
+    }
+    button { display:none; }
+    #status { margin-top: 10px; font-size: 14px; color: #8f8; }
+</style>
+</head>
+<body>
+
+<div id="display">00:00:00</div>
+<div id="status">Estado: detenido</div>
+
+<script>
+/* ------------------------------ */
+/* FUNCIONES DE PANTALLA COMPLETA */
+/* ------------------------------ */
+function enterFullscreen() {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) elem.requestFullscreen();
+    else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+    else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+}
+
+function exitFullscreen() {
+    if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    else if (document.msExitFullscreen) document.msExitFullscreen();
+}
+
+/* Cronómetro */
+let startTime = 0;
+let elapsed = 0;
+let interval = null;
+let running = false;
+
+const CHANNEL = 'cronometro-channel';
+let bc = null;
+try { bc = new BroadcastChannel(CHANNEL); } catch (e) { bc = null; }
+
+function formatTime(ms){
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${String(hours).padStart(2,"0")}:` +
+           `${String(minutes).padStart(2,"0")}:` +
+           `${String(seconds).padStart(2,"0")}`;
+}
+
+function updateDisplay(){
+    const total = (running ? elapsed + (Date.now() - startTime) : elapsed);
+    document.getElementById("display").textContent = formatTime(total);
+}
+
+function emitState(){
+    const total = (running ? elapsed + (Date.now() - startTime) : elapsed);
+    const state = {
+        type: 'state',
+        running,
+        elapsed: total,
+        timestamp: Date.now()
+    };
+    if (bc) bc.postMessage(state);
+    else localStorage.setItem('cronometro_msg', JSON.stringify(state));
+}
+
+function startTimer(){
+    if (running) return;
+    startTime = Date.now();
+    running = true;
+    interval = setInterval(() => { updateDisplay(); emitState(); }, 200);
+    updateStatus();
+    emitState();
+}
+
+function pauseTimer(){
+    if (!running) return;
+    clearInterval(interval);
+    elapsed += Date.now() - startTime;
+    running = false;
+    updateDisplay();
+    updateStatus();
+    emitState();
+}
+
+function resetTimer(){
+    clearInterval(interval);
+    startTime = 0;
+    elapsed = 0;
+    running = false;
+    updateDisplay();
+    updateStatus();
+    emitState();
+}
+
+function updateStatus(){
+    document.getElementById("status").textContent =
+        running ? 'Estado: corriendo' : 'Estado: detenido';
+}
+
+function handleMessage(msg){
+    if (!msg) return;
+    const data = msg.data !== undefined ? msg.data : msg;
+    if (!data || !data.type) return;
+
+    if (data.type === 'command'){
+
+        if (data.command === 'start') startTimer();
+        if (data.command === 'pause') pauseTimer();
+        if (data.command === 'reset') resetTimer();
+
+        /* ------------------------------ */
+        /* NUEVO: PANTALLA COMPLETA       */
+        /* ------------------------------ */
+        if (data.command === 'fullscreen') enterFullscreen();
+        if (data.command === 'exit_fullscreen') exitFullscreen();
+
+        if (data.command === 'set' && typeof data.elapsed === 'number'){
+            clearInterval(interval);
+            elapsed = data.elapsed;
+            running = !!data.running;
+
+            if (running) {
+                startTime = Date.now() - data.elapsed;
+                interval = setInterval(() => { updateDisplay(); emitState(); }, 200);
+            }
+
+            updateDisplay();
+            updateStatus();
+            emitState();
+        }
+    }
+}
+
+if (bc) bc.onmessage = handleMessage;
+else {
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'cronometro_msg' && e.newValue) {
+            try { handleMessage(JSON.parse(e.newValue)); } catch (err) {}
+        }
+    });
+}
+
+window.addEventListener('load', emitState);
+setInterval(updateDisplay, 1000);
+</script>
+
+</body>
+</html>
