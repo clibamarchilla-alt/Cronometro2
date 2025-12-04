@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Control Cronómetro</title>
+<style>
+    body { font-family: Arial, sans-serif; padding: 30px; background:#f4f4f4; color:#111; }
+    #display { font-size:48px; margin-bottom:10px; }
+    button { padding:10px 18px; margin-right:8px; font-size:16px; }
+    #state { margin-top:10px; color:#333; }
+</style>
+</head>
+<body>
+
+<h1>Control Cronómetro</h1>
+<div id="display">00:00:00</div>
+<button id="start">Iniciar</button>
+<button id="pause">Pausar</button>
+<button id="reset">Reiniciar</button>
+<button id="requestState">Pedir estado</button>
+<div id="state">Estado: desconocido</div>
+
+<script>
+const CHANNEL = 'cronometro-channel';
+let bc = null;
+try { bc = new BroadcastChannel(CHANNEL); } catch(e) { bc = null; }
+
+/* Enviar comando */
+function sendCommand(cmd, extra = {}) {
+    const msg = { type: 'command', command: cmd, ...extra };
+    if (bc) bc.postMessage(msg);
+    else localStorage.setItem('cronometro_msg', JSON.stringify(msg));
+}
+
+/* Mostrar estado recibido */
+function handleState(state) {
+    if (!state) return;
+    const ms = state.elapsed || 0;
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    document.getElementById('display').textContent =
+        `${String(hours).padStart(2,"0")}:` +
+        `${String(minutes).padStart(2,"0")}:` +
+        `${String(seconds).padStart(2,"0")}`;
+    document.getElementById('state').textContent =
+        `Estado: ${state.running ? 'corriendo' : 'detenido'} (última actualización: ${new Date(state.timestamp).toLocaleTimeString()})`;
+}
+
+/* Escuchar mensajes (estado) */
+if (bc) {
+    bc.onmessage = (ev) => {
+        const d = ev.data;
+        if (d.type === 'state') handleState(d);
+    };
+} else {
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'cronometro_msg' && e.newValue) {
+            try {
+                const parsed = JSON.parse(e.newValue);
+                if (parsed.type === 'state') handleState(parsed);
+            } catch (err){}
+        }
+    });
+}
+
+/* Botones */
+document.getElementById('start').addEventListener('click', () => sendCommand('start'));
+document.getElementById('pause').addEventListener('click', () => sendCommand('pause'));
+document.getElementById('reset').addEventListener('click', () => sendCommand('reset'));
+document.getElementById('requestState').addEventListener('click', () => {
+    // hack: pedir estado forzando al cronómetro a emitir su estado (enviamos un "ping" command que el cronómetro podría ignorar)
+    // si quieres, podríamos implementar un 'ping' + respuesta. Aquí simplemente pedimos que el cronómetro vuelva a enviar su estado:
+    if (bc) bc.postMessage({ type: 'command', command: 'noop_request_state' });
+    else localStorage.setItem('cronometro_msg', JSON.stringify({ type:'command', command:'noop_request_state' }));
+});
+</script>
+
+</body>
+</html>
