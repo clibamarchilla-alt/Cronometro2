@@ -21,7 +21,7 @@
         margin-bottom: 20px;
     }
     /* botón de pantalla completa visible */
-    button {
+    #fullscreen {
         padding: 10px 16px;
         font-size: 16px;
         background: #0f0;
@@ -29,6 +29,7 @@
         border: none;
         border-radius: 6px;
         cursor: pointer;
+        min-width: 48px; /* mantener tamaño mínimo cuando el texto se oculta */
     }
     #status { margin-top: 10px; font-size: 14px; color: #8f8; }
 </style>
@@ -36,7 +37,7 @@
 <body>
 
 <div id="display">00:00:00</div>
-<button id="fullscreen">Pantalla completa</button>
+<button id="fullscreen" aria-label="Pantalla completa">Pantalla completa</button>
 <div id="status">Estado: detenido</div>
 
 <script>
@@ -156,33 +157,62 @@ if (bc) {
     });
 }
 
-/* Fullscreen handling */
+/* Fullscreen handling: ocultar solo el texto del botón cuando esté activado */
 const fsBtn = document.getElementById('fullscreen');
-function toggleFullScreen() {
-    // El API de Fullscreen requiere un gesto del usuario; el click del botón cumple eso.
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        const el = document.documentElement;
-        if (el.requestFullscreen) el.requestFullscreen().catch(()=>{});
-        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen(); // Safari
-        else if (el.msRequestFullscreen) el.msRequestFullscreen();
+
+function isFullscreenActive() {
+    return !!(document.fullscreenElement ||
+              document.webkitFullscreenElement ||
+              document.msFullscreenElement);
+}
+
+function updateFsUI(isFs) {
+    if (isFs) {
+        // ocultar texto del botón (mantener aria-label)
+        fsBtn.textContent = '';
     } else {
-        if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-        else if (document.msExitFullscreen) document.msExitFullscreen();
+        fsBtn.textContent = 'Pantalla completa';
     }
 }
-fsBtn.addEventListener('click', toggleFullScreen);
-function updateFsLabel() {
-    const isFs = document.fullscreenElement || document.webkitFullscreenElement;
-    fsBtn.textContent = isFs ? 'Salir pantalla completa' : 'Pantalla completa';
-}
-document.addEventListener('fullscreenchange', updateFsLabel);
-document.addEventListener('webkitfullscreenchange', updateFsLabel);
 
-/* Cuando se carga, anunciar estado actual para que el controlador lo pida */
+function requestFullscreen() {
+    const el = document.documentElement;
+    if (el.requestFullscreen) return el.requestFullscreen();
+    if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+    if (el.msRequestFullscreen) return el.msRequestFullscreen();
+    return Promise.reject();
+}
+
+function exitFullscreen() {
+    if (document.exitFullscreen) return document.exitFullscreen();
+    if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+    if (document.msExitFullscreen) return document.msExitFullscreen();
+    return Promise.reject();
+}
+
+function toggleFullScreen() {
+    if (!isFullscreenActive()) {
+        requestFullscreen().catch(()=>{ /* ignorar errores */ });
+    } else {
+        exitFullscreen().catch(()=>{ /* ignorar errores */ });
+    }
+}
+
+fsBtn.addEventListener('click', toggleFullScreen);
+
+function onFsChange() {
+    updateFsUI(isFullscreenActive());
+}
+
+// eventos estándar y prefijos
+document.addEventListener('fullscreenchange', onFsChange);
+document.addEventListener('webkitfullscreenchange', onFsChange);
+document.addEventListener('msfullscreenchange', onFsChange);
+
+/* Inicializar y anunciar estado */
 window.addEventListener('load', () => {
-    // enviar un estado inicial
     emitState();
+    updateFsUI(isFullscreenActive());
 });
 
 /* Actualizar display cada segundo si no está corriendo (garantía) */
