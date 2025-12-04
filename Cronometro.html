@@ -13,19 +13,30 @@
         font-family: Arial, sans-serif;
         background: #111;
         color: #0f0;
+        margin: 0;
     }
     #display {
         font-size: 80px;
         letter-spacing: 2px;
         margin-bottom: 20px;
     }
-    button { display:none; } /* ocultamos botones locales: control desde otra pestaña */
+    /* botón de pantalla completa visible */
+    button {
+        padding: 10px 16px;
+        font-size: 16px;
+        background: #0f0;
+        color: #060;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+    }
     #status { margin-top: 10px; font-size: 14px; color: #8f8; }
 </style>
 </head>
 <body>
 
 <div id="display">00:00:00</div>
+<button id="fullscreen">Pantalla completa</button>
 <div id="status">Estado: detenido</div>
 
 <script>
@@ -106,7 +117,7 @@ function handleMessage(msg){
     if (!msg) return;
     const data = (msg.data !== undefined) ? msg.data : msg; // bc: msg.data, localStorage: parsed
     if (!data || !data.type) return;
-    if (data.type === 'command'){ 
+    if (data.type === 'command'){
         if (data.command === 'start') startTimer();
         if (data.command === 'pause') pauseTimer();
         if (data.command === 'reset') resetTimer();
@@ -122,6 +133,10 @@ function handleMessage(msg){
             }
             updateDisplay();
             updateStatus();
+            emitState();
+        }
+        // soporte para petición de estado desde el controlador
+        if (data.command === 'noop_request_state') {
             emitState();
         }
     }
@@ -140,6 +155,29 @@ if (bc) {
         }
     });
 }
+
+/* Fullscreen handling */
+const fsBtn = document.getElementById('fullscreen');
+function toggleFullScreen() {
+    // El API de Fullscreen requiere un gesto del usuario; el click del botón cumple eso.
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        const el = document.documentElement;
+        if (el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen(); // Safari
+        else if (el.msRequestFullscreen) el.msRequestFullscreen();
+    } else {
+        if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if (document.msExitFullscreen) document.msExitFullscreen();
+    }
+}
+fsBtn.addEventListener('click', toggleFullScreen);
+function updateFsLabel() {
+    const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+    fsBtn.textContent = isFs ? 'Salir pantalla completa' : 'Pantalla completa';
+}
+document.addEventListener('fullscreenchange', updateFsLabel);
+document.addEventListener('webkitfullscreenchange', updateFsLabel);
 
 /* Cuando se carga, anunciar estado actual para que el controlador lo pida */
 window.addEventListener('load', () => {
